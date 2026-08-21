@@ -1,0 +1,24 @@
+[Unit]
+Description=OpenBench Latrunculi worker
+Wants=network-online.target
+After=network-online.target openbench-server.service
+Requires=openbench-server.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/code/tools/OpenBench/Client
+EnvironmentFile=%h/.config/openbench/openbench.env
+ExecStart=%h/code/tools/OpenBench/.venv/bin/python %h/code/tools/OpenBench/Client/client.py --threads ${OPENBENCH_WORKER_THREADS} --nsockets ${OPENBENCH_WORKER_SOCKETS} --identity ${OPENBENCH_WORKER_IDENTITY} --focus Latrunculi
+Restart=always
+RestartSec=15s
+KillSignal=SIGINT
+TimeoutStopSec=90s
+UMask=0077
+Nice=10
+CPUQuota=1200%
+MemoryMax=8G
+TasksMax=512
+
+[Install]
+WantedBy=default.target
+
