@@ -14,5 +14,5 @@
 
     "books" : ["UHO_Lichess_4852_v1.epd"],
 
-    "engines" : ["Latrunculi"]
+    "engines" : ["Latrunculi", "4ku", "Willow", "Weiss", "Stash", "Drofa"]
 }
