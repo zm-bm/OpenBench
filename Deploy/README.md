@@ -35,7 +35,29 @@ systemctl --user daemon-reload
 systemctl --user enable --now openbench-server openbench-worker openbench-backup.timer
 ```
 
+## Private Access with Tailscale
+
+Add the server's MagicDNS name, such as `server.your-tailnet.ts.net`, to
+`OPENBENCH_ALLOWED_HOSTS` in `~/.config/openbench/openbench.env`. Restart
+OpenBench after changing the environment, then publish its loopback listener:
+
+```bash
+systemctl --user restart openbench-server
+tailscale serve --bg http://127.0.0.1:8000
+tailscale serve status
+```
+
+From another device on the same tailnet, verify the peer and HTTPS endpoint:
+
+```bash
+tailscale ping server
+curl --fail --show-error --head https://server.your-tailnet.ts.net/
+```
+
+Open the same HTTPS URL in a browser. `tailscale serve` keeps the endpoint
+private to the tailnet; do not enable `tailscale funnel`, which would publish
+it to the public internet.
+
 The server uses SQLite and listens on loopback plus `OPENBENCH_BIND`. Keep port
 8000 on a trusted private network. Database and PGN backups are written daily
 under `~/.local/share/openbench/backups/`.
-
