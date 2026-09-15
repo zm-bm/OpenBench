@@ -9,5 +9,5 @@ You can join OpenBench's [Discord server](https://discord.com/invite/9MVg7fBTpM)
 
 Documentation for OpenBench is available in the [Wiki](https://github.com/AndyGrant/OpenBench/wiki)
 
-Sanitized templates for the private Latrunculi workstation are under
+Systemd service templates and instructions for a small self-hosted instance are under
 [Deploy](Deploy/README.md).

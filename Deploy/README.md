@@ -1,63 +1,86 @@
-# Private Workstation Deployment
+# System service deployment
 
-These files are sanitized references for the private Latrunculi instance, not
-an installer. Review paths and resource limits before copying them to a host.
-Never place real secrets in this directory.
+This directory contains application-owned systemd templates and launch helpers for a
+small OpenBench installation. The templates intentionally leave host paths and the
+service account to the installer.
 
-## Setup
+## Install
 
-```bash
-python3.11 -m venv .venv
-.venv/bin/pip install -r requirements.txt -r Client/requirements.txt
-
-mkdir -p ~/.config/openbench ~/.config/systemd/user
-cp Deploy/openbench.env.example ~/.config/openbench/openbench.env
-chmod 600 ~/.config/openbench/openbench.env
-```
-
-Replace every placeholder in the host environment. The worker username and
-password must identify an enabled OpenBench account. Then initialize the server:
+The example below uses `/opt/OpenBench` for the checkout, `/var/lib/openbench` for
+mutable state, and `/etc/openbench/openbench.env` for secrets.
 
 ```bash
-set -a
-. ~/.config/openbench/openbench.env
-set +a
-PYTHONPATH="$PWD/Deploy:$PWD" .venv/bin/python manage.py migrate
-PYTHONPATH="$PWD/Deploy:$PWD" .venv/bin/python manage.py collectstatic --noinput
-PYTHONPATH="$PWD/Deploy:$PWD" .venv/bin/python manage.py createsuperuser
+sudo useradd --system --home-dir /var/lib/openbench --create-home openbench
+sudo git clone https://github.com/zm-bm/OpenBench.git /opt/OpenBench
+sudo python3.11 -m venv /opt/OpenBench/.venv
+sudo /opt/OpenBench/.venv/bin/pip install \
+  -r /opt/OpenBench/requirements.txt \
+  -r /opt/OpenBench/Client/requirements.txt
+
+sudo install -d -m 0750 -o root -g openbench /etc/openbench
+sudo install -m 0640 -o root -g openbench \
+  /opt/OpenBench/Deploy/openbench.env.example \
+  /etc/openbench/openbench.env
+sudo install -m 0600 -o openbench -g openbench /dev/null \
+  /var/lib/openbench/db.sqlite3
 ```
 
-Copy the unit files, enable user lingering if needed, and start the services:
+Edit `/etc/openbench/openbench.env`, replacing the secret and host placeholders.
+Render the services using the documented default paths, then start the server and
+backup timer:
 
 ```bash
-cp Deploy/openbench-*.service Deploy/openbench-backup.timer ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now openbench-server openbench-worker openbench-backup.timer
+sudo /opt/OpenBench/Deploy/render-systemd-units.sh /etc/systemd/system
+sudo systemctl daemon-reload
+sudo systemctl enable --now openbench-server openbench-backup.timer
 ```
 
-## Private Access with Tailscale
-
-Add the server's MagicDNS name, such as `server.your-tailnet.ts.net`, to
-`OPENBENCH_ALLOWED_HOSTS` in `~/.config/openbench/openbench.env`. Restart
-OpenBench after changing the environment, then publish its loopback listener:
+Create the initial administrator using the same settings as the service:
 
 ```bash
-systemctl --user restart openbench-server
-tailscale serve --bg http://127.0.0.1:8000
-tailscale serve status
+sudo -u openbench -g openbench bash -c '
+  set -a
+  source /etc/openbench/openbench.env
+  set +a
+  export OPENBENCH_SOURCE=/opt/OpenBench
+  export OPENBENCH_STATE_DIR=/var/lib/openbench
+  export PYTHONPATH=/opt/OpenBench/Deploy:/opt/OpenBench
+  cd /var/lib/openbench
+  /opt/OpenBench/.venv/bin/python /opt/OpenBench/manage.py createsuperuser
+'
 ```
 
-From another device on the same tailnet, verify the peer and HTTPS endpoint:
+Finally, put the credentials for that administrator (or another enabled account)
+in `OPENBENCH_USERNAME` and `OPENBENCH_PASSWORD`, then start the worker:
 
 ```bash
-tailscale ping server
-curl --fail --show-error --head https://server.your-tailnet.ts.net/
+sudo systemctl enable --now openbench-worker
 ```
 
-Open the same HTTPS URL in a browser. `tailscale serve` keeps the endpoint
-private to the tailnet; do not enable `tailscale funnel`, which would publish
-it to the public internet.
+The server launcher applies database migrations and collects static files before
+starting Gunicorn. By default it listens only on `127.0.0.1:8000`; expose it through
+a reverse proxy or private network as appropriate.
 
-The server uses SQLite and listens on loopback plus `OPENBENCH_BIND`. Keep port
-8000 on a trusted private network. Database and PGN backups are written daily
-under `~/.local/share/openbench/backups/`.
+## Configuration
+
+The environment file controls hosts, binding, worker credentials, and worker capacity.
+Set `OPENBENCH_PUBLIC_HOST` when HTTPS terminates at a reverse proxy; this also enables
+secure cookies and trusts that host for CSRF checks.
+
+The renderer defaults to the paths and account used above. Packagers may override
+them with `OPENBENCH_SERVICE_USER`, `OPENBENCH_SERVICE_GROUP`,
+`OPENBENCH_STATE_DIR`, `OPENBENCH_ENVIRONMENT_FILE`, `OPENBENCH_SOURCE`, and
+`OPENBENCH_BASH`.
+
+The launchers normally use `/opt/OpenBench/.venv`. Packagers may additionally
+provide `OPENBENCH_PYTHON`, `OPENBENCH_GUNICORN`, `OPENBENCH_SETTINGS_DIR`, and
+`OPENBENCH_FASTCHESS` directly in the rendered service or an environment file.
+
+Check the deployment with:
+
+```bash
+systemctl status openbench-server openbench-worker openbench-backup.timer
+curl --fail http://127.0.0.1:8000/
+```
+
+Backups are stored under `/var/lib/openbench/backups`; the newest 14 are retained.

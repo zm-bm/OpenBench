@@ -1,0 +1,24 @@
+[Unit]
+Description=OpenBench chess testing server
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=@service_user@
+Group=@service_group@
+WorkingDirectory=@state_dir@
+EnvironmentFile=@environment_file@
+Environment=OPENBENCH_SOURCE=@source_dir@
+Environment=OPENBENCH_STATE_DIR=@state_dir@
+ExecStart=@bash@ @source_dir@/Deploy/run-server.sh
+Restart=on-failure
+RestartSec=5s
+KillSignal=SIGTERM
+TimeoutStopSec=120s
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

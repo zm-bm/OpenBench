@@ -1,4 +1,4 @@
-"""Back up the SQLite database and retained server PGNs."""
+"""Create and retain local OpenBench SQLite and media backups."""
 
 import hashlib
 import os
@@ -8,34 +8,35 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-ROOT = Path(
-    os.environ.get("OPENBENCH_ROOT", Path.home() / "code/tools/OpenBench")
-).expanduser()
-BACKUP_DIR = Path(
-    os.environ.get(
-        "OPENBENCH_BACKUP_DIR", Path.home() / ".local/share/openbench/backups"
-    )
-).expanduser()
-stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-database_copy = BACKUP_DIR / f"openbench-{stamp}.sqlite3"
-archive = BACKUP_DIR / f"openbench-{stamp}.tar.gz"
-
 os.umask(0o077)
-BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-with sqlite3.connect(ROOT / "db.sqlite3") as source:
-    with sqlite3.connect(database_copy) as destination:
-        source.backup(destination)
+root = Path(os.environ.get("OPENBENCH_STATE_DIR", "/var/lib/openbench"))
+dest = Path(os.environ.get("OPENBENCH_BACKUP_DIR", root / "backups"))
+dest.mkdir(parents=True, exist_ok=True)
+stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+database_copy = dest / f"{stamp}.sqlite3"
+archive = dest / f"openbench-{stamp}.tar.gz"
 
-with tarfile.open(archive, "w:gz") as output:
-    output.add(database_copy, arcname="db.sqlite3")
-    pgn_dir = ROOT / "Media/PGNs"
-    if pgn_dir.exists():
-        output.add(pgn_dir, arcname="Media/PGNs")
+try:
+    with sqlite3.connect(f"file:{root}/db.sqlite3?mode=ro", uri=True) as source:
+        with sqlite3.connect(database_copy) as copy:
+            source.backup(copy)
+            if copy.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                raise RuntimeError("Database integrity check failed")
 
-database_copy.unlink()
-digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-archive.with_suffix(archive.suffix + ".sha256").write_text(
-    f"{digest}  {archive.name}\n", encoding="ascii"
-)
-print(archive)
+    with tarfile.open(archive, "w:gz") as output:
+        output.add(database_copy, arcname="db.sqlite3")
+        if (root / "Media").exists():
+            output.add(root / "Media", arcname="Media")
 
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    archive.with_suffix(".gz.sha256").write_text(
+        f"{digest}  {archive.name}\n", encoding="ascii"
+    )
+
+    for expired in sorted(dest.glob("openbench-*.tar.gz"))[:-14]:
+        expired.unlink()
+        expired.with_suffix(".gz.sha256").unlink(missing_ok=True)
+
+    print(archive)
+finally:
+    database_copy.unlink(missing_ok=True)

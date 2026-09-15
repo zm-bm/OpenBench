@@ -1,0 +1,16 @@
+[Unit]
+Description=Back up the OpenBench database and media
+
+[Service]
+Type=oneshot
+User=@service_user@
+Group=@service_group@
+WorkingDirectory=@state_dir@
+EnvironmentFile=@environment_file@
+Environment=OPENBENCH_SOURCE=@source_dir@
+Environment=OPENBENCH_STATE_DIR=@state_dir@
+ExecStart=@bash@ @source_dir@/Deploy/run-backup.sh
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+Nice=10
